@@ -39,3 +39,27 @@ Target a specific niche (e.g., "Marketing Agencies in Dubai") and generate a bas
 
 ```bash
 node maps.js
+```
+Output: dubai_maps_leads.csv
+
+Step 2: Extract Emails
+Feed the list into the hunter bot to visit websites and find contact info.
+
+```bash
+node email-hunter.js
+```
+Output: dubai_final_leads.csv
+
+⚠️ Disclaimer
+This tool is created for educational purposes and personal workflow automation as part of a public business challenge. Please respect robots.txt and terms of service of target websites.
+
+👨‍💻 Author
+Kaushal Shah
+
+Portfolio: www.mrkaushalshah.com
+
+LinkedIn: Kaushal Shah
+
+Challenge: The ₹1 Lakh Roadmap
+
+Built with 💻 and ☕ by Kaushal.
