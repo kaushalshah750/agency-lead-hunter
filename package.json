@@ -16,6 +16,7 @@
     "csv-writer": "^1.6.0",
     "google-auth-library": "^10.5.0",
     "google-spreadsheet": "^5.0.2",
+    "nodemailer": "^7.0.12",
     "openai": "^6.15.0",
     "puppeteer": "^24.34.0",
     "puppeteer-extra": "^3.3.6",

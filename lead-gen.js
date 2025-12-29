@@ -1,49 +1,33 @@
-// master-bot.js
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { OpenAI } = require('openai');
-const nodemailer = require('nodemailer'); // NEW IMPORT
 const sheetManager = require('./sheet-manager');
 
 puppeteer.use(StealthPlugin());
 
 // --- CONFIGURATION ---
 const OPENAI_KEY = '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';
-const RUNS_PER_DAY = 15; // Thoda kam kiya safety ke liye
-const LEADS_TO_FIND_PER_RUN = 5; 
-
-// --- EMAIL CONFIGURATION (IMP) ---
-const EMAIL_USER = 'kaushalshah750@gmail.com'; // Tera email check kar lena
-const EMAIL_PASS = 'bobk nuel roos gfwn'; // YAHAN APNA APP PASSWORD DAAL (Not Login Password)
-
-const TARGET_NICHE = 'Digital Marketing Agency';  // e.g., 'Coaching Classes', 'Real Estate Agents'
-const TARGET_LOCATION = 'Dubai';                // e.g., 'Pune', 'Mumbai', 'Germany'
+const TARGET_NICHE = 'Digital Marketing Agency'; 
+const TARGET_LOCATION = 'Germany';
 const GOOGLE_MAPS_SEARCH_QUERY = `${TARGET_NICHE} in ${TARGET_LOCATION}`;
+const RUNS_PER_DAY = 50; 
+const LEADS_TO_FIND_PER_RUN = 50; 
 
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
-
-// Email Transporter Setup
-const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-        user: EMAIL_USER,
-        pass: EMAIL_PASS
-    }
-});
 
 // --- HELPER FUNCTIONS ---
 
 async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
     await page.goto(`https://www.google.com/maps/search/${query.split(' ').join('+')}`, { waitUntil: 'networkidle2' });
-    try { await page.waitForSelector('div[role="feed"]', { timeout: 10000 }); } catch (e) {}
+    try { await page.waitForSelector('div[role="feed"]', { timeout: 15000 }); } catch (e) {}
 
     await page.evaluate(async () => {
         const wrapper = document.querySelector('div[role="feed"]');
         if(wrapper) {
             for(let i=0; i<5; i++) { 
                 wrapper.scrollTop = wrapper.scrollHeight;
-                await new Promise(r => setTimeout(r, 1500)); 
+                await new Promise(r => setTimeout(r, 2000)); 
             }
         }
     });
@@ -64,17 +48,10 @@ async function getMapsLeads(page, query) {
 async function findEmail(page, url) {
     try {
         await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        
-        // Strategy 1: Mailto
         let email = await page.evaluate(() => {
             const mailto = document.querySelector('a[href^="mailto:"]');
             return mailto ? mailto.href.replace('mailto:', '').split('?')[0] : null;
         });
-
-        // Strategy 2: Contact Page logic (Shortened for brevity)
-        if (!email) {
-            // Add simple contact page crawler if needed, or keep relying on homepage
-        }
         return email;
     } catch (e) { return null; }
 }
@@ -82,11 +59,9 @@ async function findEmail(page, url) {
 async function generateAIContent(name, website, page) {
     let context = "Business";
     try {
-        // Thoda context nikalte hain taaki generic na lage
         context = await page.evaluate(() => document.body.innerText.substring(0, 800));
     } catch (e) {}
 
-    // 🔥 UPDATED PROMPT: Specific Structure + Dynamic Niche 🔥
     const prompt = `
     Context: You are writing a cold email to ${name}, which is a ${TARGET_NICHE} based in or targeting ${TARGET_LOCATION}.
     Their Website Content Snippet: "${context.replace(/\n/g, ' ')}".
@@ -97,70 +72,35 @@ async function generateAIContent(name, website, page) {
     EMAIL STRUCTURE (Strictly follow this order):
     1. Greeting: Hi ${name} Team,
     2. The Hook: Direct statement about how an AI Receptionist/Automation can scale a ${TARGET_NICHE}.
-    3. The Pitch: Briefly mention you have a "Ready-to-deploy" white-label WhatsApp Bot that handles bookings/inquiries automatically.
-    4. Your Credibility: Mention you are a Senior Developer (Angular/Node.js) moving into the agency space.
-    5. The Ask: Ask if they are available for a short 15-min call to see a live demo video.
+    3. The Pitch: Briefly mention you have a "Ready-to-deploy" white-label WhatsApp Bot.
+    4. Your Credibility: Mention you are a Senior Developer.
+    5. The Ask: Ask if they are available for a short 15-min call to see a live demo.
     6. Portfolio: "For my portfolio & technical background, please check: https://www.mrkaushalshah.com/"
     
     INSTRUCTIONS:
-    - Language: Professional English (Direct, confident, no fluff).
-    - Tone: Peer-to-peer (Business owner to Business owner), not an employee asking for a job.
-    - Subtle Goal: Show competence so high that they might consider sponsoring/hiring you for bigger roles without you begging for it.
     - Output strictly in JSON format: {"subject": "...", "body": "..."}
-    - Subject Line: Needs to be high-impact and relevant to ${TARGET_NICHE} (e.g., "Partnership: AI for [Company Name]" or "White-label Automation for [Company Name]").
-    - DO NOT include a signature (I will append it automatically).
+    - Subject Line: Needs to be high-impact.
+    - DO NOT include a signature.
     `;
     
     try {
         const res = await openai.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
-            model: "gpt-5.1", // Ya gpt-3.5-turbo agar tokens bachane hain
+            model: "gpt-5.1",
             response_format: { type: "json_object" }
         });
         return JSON.parse(res.choices[0].message.content);
     } catch (e) { 
-        console.log("AI Error:", e.message);
-        // Fallback agar AI fail ho jaye
-        return { 
-            subject: `Partnership Opportunity: AI for ${name}`, 
-            body: `Hi ${name} Team,\n\nI noticed you are doing great work in the ${TARGET_NICHE} space. I have built a specialized WhatsApp Automation tool tailored for businesses like yours.\n\nI am Kaushal Shah, a Senior Developer, and I'd love to show you a 15-min demo.\n\nYou can check my portfolio here: https://www.mrkaushalshah.com/\n\nAre you open for a quick chat?` 
-        }; 
+        return { subject: "Partnership Opportunity", body: "Hi, check my portfolio mrkaushalshah.com" }; 
     }
 }
 
-async function sendEmail(toEmail, subject, body) {
-    const signature = `
---
-Best Regards,
-Kaushal Shah
-Senior Software Developer
-+91 99744 42525
-portfolio: mrkaushalshah.com
-    `;
-
-    const mailOptions = {
-        from: `"Kaushal Shah" <${EMAIL_USER}>`,
-        to: toEmail,
-        subject: subject,
-        text: body + "\n" + signature
-    };
-
-    try {
-        await transporter.sendMail(mailOptions);
-        return true;
-    } catch (error) {
-        console.error("Error sending email:", error);
-        return false;
-    }
-}
-
-// --- MAIN LOOP ---
-
-async function runBatch() {
-    console.log('🔄 Starting New Batch...');
+// --- MAIN SCRAPER LOOP ---
+async function runScraper() {
+    console.log('🔄 Starting Lead Gen Batch...');
     await sheetManager.initSheet(); 
 
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: true }); // Headless False for Maps
     const page = await browser.newPage();
 
     const allLeads = await getMapsLeads(page, GOOGLE_MAPS_SEARCH_QUERY);
@@ -185,38 +125,26 @@ async function runBatch() {
             continue; 
         }
 
-        console.log(`   🤖 Drafting & Sending to ${email}...`);
+        console.log(`   🤖 Generating AI Content...`);
         const aiContent = await generateAIContent(lead.name, lead.website, page);
-        
-        // SEND EMAIL
-        const sent = await sendEmail(email, aiContent.subject, aiContent.body);
         
         await sheetManager.addLead({
             name: lead.name,
             website: lead.website,
             email: email,
             subject: aiContent.subject,
-            body: aiContent.body,
-            status: sent ? 'SENT' : 'FAILED'
+            body: aiContent.body
         });
 
-        if (sent) {
-            console.log(`   ✅ EMAIL SENT to ${lead.name}`);
-            // --- SPAM PROTECTION DELAY (2 to 5 minutes) ---
-            const delay = Math.floor(Math.random() * (300000 - 120000 + 1) + 120000);
-            console.log(`   zzz Sleeping for ${(delay/1000/60).toFixed(1)} mins to avoid spam filter...`);
-            await new Promise(r => setTimeout(r, delay));
-        } else {
-            console.log(`   ❌ Sending Failed.`);
-        }
-        
+        console.log(`   💾 Saved to Sheet (Status: Ready)`);
         processedCount++;
     }
 
     await browser.close();
-    console.log('💤 Batch Complete. Waiting for next schedule...');
+    console.log('💤 Scraper Batch Complete.');
 }
 
+// Schedule
 const intervalMs = (24 * 60 * 60 * 1000) / RUNS_PER_DAY;
-runBatch();
-setInterval(runBatch, intervalMs);
+runScraper();
+setInterval(runScraper, intervalMs);
