@@ -1,4 +1,4 @@
-// lead-gen.js
+require('dotenv').config();
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { OpenAI } = require('openai');
@@ -6,49 +6,86 @@ const sheetManager = require('./sheet-manager');
 
 puppeteer.use(StealthPlugin());
 
-// --- CONFIGURATION ---
-const OPENAI_KEY = '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';
-
 // 🔥 DYNAMIC SEARCH ARRAYS 🔥
-// Jitni zyada cities, utna kam duplication.
 const TARGET_LOCATIONS = [
-    'Berlin, Germany', 
-    'Pune, India', 
-    'Mumbai, India', 
-    'Surat, India', 
-    'Ahmedabad, India', 
-    'Vadodra, India', 
-    'Munich, Germany', 
-    'Hamburg, Germany', 
-    'Frankfurt, Germany', 
-    'Cologne, Germany', 
+    // 🇪🇺 Europe (Rich & English Friendly)
+    'London, UK',
+    'Manchester, UK',
+    'Birmingham, UK',
+    'Berlin, Germany',
+    'Munich, Germany',
+    'Amsterdam, Netherlands',
+    'Dublin, Ireland',
+    'Zurich, Switzerland',
+
+    // 🇦🇪 Middle East (High Ticket)
     'Dubai, UAE',
-    'Abu Dhabi, UAE'
+    'Abu Dhabi, UAE',
+    'Doha, Qatar',
+    'Riyadh, Saudi Arabia',
+
+    // 🇺🇸 North America (Avoid NYC/SF - Too saturated. Go for Tier 2)
+    'Austin, USA',
+    'Miami, USA',
+    'Denver, USA',
+    'Toronto, Canada',
+    'Vancouver, Canada',
+
+    // 🌏 APAC
+    'Singapore',
+    'Sydney, Australia',
+    'Melbourne, Australia'
 ];
 
-// Keywords change karte raho taaki alag results milein
 const TARGET_NICHES = [
-    'Digital Marketing Agency', 
-    'SEO Agency', 
-    'Web Design Agency', 
-    'Advertising Agency',
-    'Social Media Marketing Agency'
+    // These agencies serve clients who NEED appointments
+    'Real Estate Marketing Agency',
+    'Dental Marketing Agency',
+    'Medical Marketing Agency',
+    'Recruitment Agency',
+    'Event Management Agency',
+    'Gym Marketing Agency',
+    'Web Design Agency',
+    'SEO Agency',
+    'Lead Generation Agency'
 ];
 
 const RUNS_PER_DAY = 100; 
 const LEADS_TO_FIND_PER_RUN = 500; 
 
-const openai = new OpenAI({ apiKey: OPENAI_KEY });
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // --- HELPER: PICK RANDOM ITEM ---
 function getRandomItem(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-async function safeGoto(page, url, waitUntil) {
+async function safeGoto(page, url) {
     try {
-        // 60 second wait karega, agar nahi khula toh error nahi dega, bas false return karega
-        await page.goto(url, { waitUntil: waitUntil, timeout: 60000 });
+        // 1. Load karo aur DOM (Basic HTML) aane ka wait karo
+        const response = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+        // 2. 🛑 4 SECOND RUKO (Ye sabse zaroori line hai)
+        // Site ko scripts run karne ka time do
+        await new Promise(r => setTimeout(r, 4000));
+
+        // 3. Agar response error wala hai (404/500), toh fail karo
+        if (!response || !response.ok()) {
+             // 403 Forbidden aksar bot detection hota hai, usse fail maano
+             if(response && response.status() >= 400) {
+                 console.log(`   ⚠️ Server returned ${response.status()}`);
+                 return false; 
+             }
+        }
+        
+        // 4. Check karo ki kya sach mein body load hui hai?
+        try {
+            await page.waitForSelector('body', { timeout: 5000 });
+        } catch(e) {
+            console.log("   ⚠️ Body tag not found (Blank Page)");
+            return false;
+        }
+
         return true;
     } catch (error) {
         console.log(`   ❌ Failed to load URL: ${url} (Error: ${error.message})`);
@@ -106,59 +143,85 @@ async function getMapsLeads(page, query) {
 
 async function findEmail(page, url) {
     try {
-        const isLoaded = await safeGoto(page, url, 'domcontentloaded');
-        if (!isLoaded) {
-            let email = await page.evaluate(() => {
-                const mailto = document.querySelector('a[href^="mailto:"]');
-                return mailto ? mailto.href.replace('mailto:', '').split('?')[0] : null;
-            });
-            return email;
-        }    
+        const isLoaded = await safeGoto(page, url);
+        
+        // 🛑 AGAR PAGE LOAD NAHI HUA, TOH TURANT RUK JAO
+        if (!isLoaded) return null; 
+
+        // Agar load hua, tabhi scrape karo
+        let email = await page.evaluate(() => {
+            const mailto = document.querySelector('a[href^="mailto:"]');
+            return mailto ? mailto.href.replace('mailto:', '').split('?')[0] : null;
+        });
+        return email;
     } catch (e) { return null; }
 }
 
 async function generateAIContent(name, website, page, niche, location) {
     let context = "Business";
     try {
-        context = await page.evaluate(() => document.body.innerText.substring(0, 800));
+        // Context thoda badhaya taaki AI better samjhe
+        context = await page.evaluate(() => document.body.innerText.substring(0, 1500));
     } catch (e) {
         console.log(`   ⚠️ Context Scrape Failed for ${name}`);
     }
 
     const prompt = `
-    Context: Writing a cold email to ${name}, a ${niche} in ${location}.
-    Website Context: "${context.replace(/\n/g, ' ').substring(0, 500)}".
-    
-    My Identity: Kaushal Shah, Senior Full-Stack Developer (Sparqal).
-    My Offer: White-Label WhatsApp Automation Bot.
-    
-    EMAIL STRUCTURE (Strictly follow this order):
-    1. Greeting: Hi ${name} Team,
-    2. The Hook: Direct statement about how an AI Receptionist/Automation can scale a ${niche}.
-    3. The Pitch: Briefly mention you have a "Ready-to-deploy" white-label WhatsApp Bot.
-    4. Your Credibility: Mention you are a Senior Developer.
-    5. The Ask: Ask if they are available for a short 15-min call to see a live demo.
-    6. Portfolio: "For my portfolio & technical background, please check: https://www.mrkaushalshah.com/"
-    
-    INSTRUCTIONS:
-    - Output strictly in JSON format: {"subject": "...", "body": "..."}
-    - Subject Line: Needs to be high-impact.
-    - DO NOT include a signature.
+    ROLE: You are Kaushal Shah, a Senior Full-Stack Developer & Agency Partner at Sparqal.
+    GOAL: Write a B2B cold email to an Agency Owner (${name}) to partner up for White-Label AI Automation.
+
+    TARGET INFO:
+    - Agency Name: ${name}
+    - Niche: ${niche}
+    - Location: ${location}
+    - Website Context: "${context.replace(/\n/g, ' ').substring(0, 600)}"
+
+    YOUR OFFER (The Product):
+    - A White-Label WhatsApp AI Receptionist.
+    - Agencies resell this to THEIR clients under THEIR brand.
+    - It handles 24/7 replies, appointment booking, and Google Calendar sync.
+
+    ---------------------------------------------------
+    🛑 INSTRUCTIONS FOR JSON OUTPUT (STRICTLY FOLLOW) 🛑
+    ---------------------------------------------------
+
+    1. SUBJECT LINE (Make it HYPER-SPECIFIC & UNIQUE):
+       - Do NOT use generic templates like "automation partner for...".
+       - Read the WEBSITE CONTEXT above. What do they actually do?
+       - If they do Recruitment -> Mention "candidates" or "hiring".
+       - If they do Real Estate -> Mention "property inquiries" or "listings".
+       - If they do SEO/Marketing -> Mention "client leads" or "bookings".
+       - CONSTRAINTS:
+         - Keep it SHORT (5-8 words max).
+         - Casual tone.
+         - No salesy words like "Boost", "Skyrocket", "Growth".
+
+    2. BODY CONTENT:
+       - Greeting: MUST start with "Hi ${name} Team," (Do not use [First Name]).
+       - Opener: One specific compliment based on their website context (Show you did research).
+       - The Pivot: "Most agencies I talk to struggle to offer advanced AI automations to their clients without hiring a full dev team."
+       - The Solution: "I've built a plug-and-play WhatsApp AI Receptionist (Appointment Booking + Calendar Sync) that you can white-label and resell immediately."
+       - Credibility: "I’m a Senior Full-Stack Dev (4.5+ years) at Sparqal, so this is built for scale."
+       - CTA: "I have a 45-second demo video of how it books appointments. Mind if I send it over?"
+       - ENDING: STOP HERE. DO NOT ADD "Best, Kaushal" or any signature. My code adds it automatically.
+
+    ---------------------------------------------------
+    Output strictly in JSON format: {"subject": "...", "body": "..."}
     `;
 
     try {
         console.log(`   🤖 Asking AI to write for: ${name}...`);
         const res = await openai.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
-            model: "gpt-5.1",
+            model: "gpt-5.1", // Ya gpt-3.5-turbo agar budget tight hai
             response_format: { type: "json_object" }
         });
         return JSON.parse(res.choices[0].message.content);
     } catch (e) { 
         console.error(`   ❌ AI Error: ${e.message}`);
         return { 
-            subject: `Partnership Opportunity: AI for ${name}`, 
-            body: `Hi ${name} Team,\n\nI noticed you are doing great work in ${location}. I have built a specialized WhatsApp Automation tool tailored for agencies like yours.\n\nCheck my portfolio: https://www.mrkaushalshah.com/\n\nAre you open for a quick chat?` 
+            subject: `question for ${name} team`, 
+            body: `Hi ${name} Team,\n\nI was checking out your website and loved your work in ${location}.\n\nMost agencies I talk to want to offer AI Automation to clients but lack the dev team.\n\nI've built a White-Label WhatsApp Bot (Booking + Calendar Sync) that you can resell under your brand.\n\nI have a 45-second demo video. Mind if I send it over?` 
         }; 
     }
 }
@@ -185,7 +248,39 @@ async function runScraper() {
         ]
     });
 
-    const page = await browser.newPage();
+    const page = await browser.newPage(); // Ye line pehle se hogi
+
+    // --- 🟢 NEW CODE STARTS HERE ---
+    
+    // 1. Fake User Agent (Server ko Windows Laptop banao)
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+    // 2. Extra Headers (Real user dikhne ke liye)
+    await page.setExtraHTTPHeaders({
+        'Accept-Language': 'en-US,en;q=0.9',
+    });
+
+    // 3. Block Images & CSS (Speed badhane ke liye - BOHT ZAROORI HAI)
+    // 🟢 UPDATED INTERCEPTION LOGIC (Isse Copy-Paste kar)
+    await page.setRequestInterception(true);
+        
+    page.on('request', (req) => {
+        const resourceType = req.resourceType();
+        
+        // 1. Agar ye Main Website (document) hai, toh ROKNA MAT!
+        if (resourceType === 'document') {
+            req.continue();
+            return;
+        }
+
+        // 2. Sirf fizool cheezein roko
+        if (['image', 'media', 'font', 'stylesheet', 'imageset'].includes(resourceType)) {
+            req.abort();
+        } else {
+            // 3. Scripts aur baki sab jaane do (React sites ke liye zaroori hai)
+            req.continue();
+        }
+    });
 
     const allLeads = await getMapsLeads(page, searchQuery);
     console.log(`   📍 Found ${allLeads.length} leads.`);
@@ -194,6 +289,9 @@ async function runScraper() {
 
     for (const lead of allLeads) {
         if (processedCount >= LEADS_TO_FIND_PER_RUN) break;
+
+        // 🧹 SAFETY FLUSH: Purani website saaf karo taaki data mix na ho
+        try { await page.goto('about:blank'); } catch(e) {}
 
         const isDup = await sheetManager.isDuplicate(lead.website);
         if (isDup) {
