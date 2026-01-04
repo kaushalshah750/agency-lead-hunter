@@ -100,7 +100,7 @@ async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
     
     // 🟢 2. STANDARD URL (Ye best hai desktop view ke liye)
-    const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}?hl=en`;
+    const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}/?hl=en`;
     // Page load hone ka wait karo
     const isLoaded = await safeGoto(page, url);
 
@@ -261,15 +261,19 @@ async function runScraper() {
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
     const browser = await puppeteer.launch({
-        headless: "new", // ✅ Server ke liye 'true' ya 'new' compulsory hai
+        headless: "new",
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
+            '--disable-accelerated-2d-canvas', // 🟢 Added
+            '--no-first-run', // 🟢 Added
+            '--no-zygote', // 🟢 Added
+            '--disable-gpu',
+            '--window-size=1920,1080' // 🟢 Force window size in args too
         ]
     });
-    
+
     const page = await browser.newPage();
 
     // 🟢 1. SCREEN SIZE BADA KARO (Desktop Mode Force Karo)
@@ -290,17 +294,15 @@ async function runScraper() {
     page.on('request', (req) => {
         const resourceType = req.resourceType();
         
-        // 1. Agar ye Main Website (document) hai, toh ROKNA MAT!
         if (resourceType === 'document') {
             req.continue();
             return;
         }
 
-        // 2. Sirf fizool cheezein roko
-        if (['image', 'media', 'font', 'stylesheet', 'imageset'].includes(resourceType)) {
+        // Google Maps needs CSS/Fonts to render the initial frame correctly on servers
+        if (['image', 'media', 'imageset'].includes(resourceType)) {
             req.abort();
         } else {
-            // 3. Scripts aur baki sab jaane do (React sites ke liye zaroori hai)
             req.continue();
         }
     });
