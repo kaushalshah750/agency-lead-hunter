@@ -63,7 +63,7 @@ async function addLead(data) {
             'Email': data.email,
             'AI Subject': data.subject,
             'AI Body': data.body,
-            'Status': 'Ready',
+            'Status': data.status || 'Ready',
             'Date Found': new Date().toISOString().split('T')[0],
             'Industry': data.industry || 'Unknown',
             'Location': data.location || 'Unknown'

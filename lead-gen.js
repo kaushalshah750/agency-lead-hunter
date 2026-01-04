@@ -214,7 +214,7 @@ async function runScraper() {
                 body: "-",
                 industry: currentNiche,
                 location: currentLocation,
-                status: "Skipped" // Status column update ho jayega
+                status: "No Email" // Status column update ho jayega
             });
             continue; // Ab loop aage badhega, AI generate nahi karega
         }
