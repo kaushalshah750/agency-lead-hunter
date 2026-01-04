@@ -50,8 +50,8 @@ const TARGET_NICHES = [
     'Lead Generation Agency'
 ];
 
-const RUNS_PER_DAY = 100; 
-const LEADS_TO_FIND_PER_RUN = 500; 
+const RUNS_PER_DAY = 50; 
+const LEADS_TO_FIND_PER_RUN = 50; 
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -95,34 +95,55 @@ async function safeGoto(page, url) {
 
 async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
-    let rawLeads = []; // ERROR 1 FIX: Changed 'const' to 'let'
+    let rawLeads = [];
 
-    // ERROR 2 FIX: Corrected URL and added '$' before {query}
+    // 1. Standard Google Maps Search URL use karo (Zyada reliable hai)
     const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}`;
     
-    // ERROR 3 FIX: Wait logic thoda loose rakha hai taaki crash na ho
-    const isLoaded = await safeGoto(page, url, 'domcontentloaded');
+    // Page load hone ka wait karo
+    const isLoaded = await safeGoto(page, url);
 
-    // ERROR 4 FIX: Removed '!' (Logic was inverted)
     if (isLoaded) { 
         try {
-            // Wait for feed to appear
-            await page.waitForSelector('div[role="feed"]', { timeout: 15000 });
+            // 🛑 CONSENT FORM HANDLE (Ye zaroori hai Europe/USA ke liye)
+            try {
+                // Check karo agar 'Accept all' button hai (Google ka popup)
+                const consentSelector = 'button[aria-label="Accept all"], button[aria-label="Accept all cookies"], form[action*="consent"] button';
+                const consentButton = await page.$(consentSelector);
+                if (consentButton) {
+                    console.log("   🍪 Clicking Google Consent Cookie...");
+                    await consentButton.click();
+                    // Click ke baad thoda wait taaki map load ho jaye
+                    await new Promise(r => setTimeout(r, 3000));
+                }
+            } catch (err) {
+                // Agar consent button nahi mila toh koi baat nahi, aage badho
+            }
+
+            // Ab Feed (List) ka wait karo
+            await page.waitForSelector('div[role="feed"]', { timeout: 20000 });
         } catch (e) {
             console.log("   ⚠️ No results found or Feed selector changed.");
-            return []; // Return empty array instead of undefined
+            
+            // 📸 DEBUG SCREENSHOT (Agar fail hua to ye photo save hogi)
+            console.log("   📸 Saving debug screenshot: error_debug.png");
+            await page.screenshot({ path: 'error_debug.png' });
+            
+            return []; 
         }
 
+        // Scroll Logic (Deep Mining)
         await page.evaluate(async () => {
             const wrapper = document.querySelector('div[role="feed"]');
             if(wrapper) {
-                for(let i=0; i<40; i++) { 
+                for(let i=0; i<30; i++) {  // 30 Times Scroll
                     wrapper.scrollTop = wrapper.scrollHeight;
                     await new Promise(r => setTimeout(r, 1500)); 
                 }
             }
         });
     
+        // Data Extract
         rawLeads = await page.evaluate(() => {
             const items = document.querySelectorAll('div[role="article"]');
             return Array.from(items).map(item => {
