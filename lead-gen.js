@@ -35,7 +35,7 @@ const TARGET_NICHES = [
     'Social Media Marketing Agency'
 ];
 
-const RUNS_PER_DAY = 50; 
+const RUNS_PER_DAY = 100; 
 const LEADS_TO_FIND_PER_RUN = 500; 
 
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
@@ -79,9 +79,9 @@ async function getMapsLeads(page, query) {
         await page.evaluate(async () => {
             const wrapper = document.querySelector('div[role="feed"]');
             if(wrapper) {
-                for(let i=0; i<6; i++) { 
+                for(let i=0; i<40; i++) { 
                     wrapper.scrollTop = wrapper.scrollHeight;
-                    await new Promise(r => setTimeout(r, 2000)); 
+                    await new Promise(r => setTimeout(r, 1500)); 
                 }
             }
         });
@@ -175,7 +175,7 @@ async function runScraper() {
 
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: false });
     const page = await browser.newPage();
 
     const allLeads = await getMapsLeads(page, searchQuery);
@@ -196,8 +196,18 @@ async function runScraper() {
         const email = await findEmail(page, lead.website);
         
         if (!email) {
-            console.log(`   ❌ No Email. Skipping.`);
-            continue; 
+            console.log(`   ⚠️ No Email Found. Saving to Sheet to ignore next time.`);
+            await sheetManager.addLead({
+                name: lead.name,
+                website: lead.website,
+                email: "No Email Found", // Sheet mein ye likha aayega
+                subject: "-",
+                body: "-",
+                industry: currentNiche,
+                location: currentLocation,
+                status: "Skipped" // Status column update ho jayega
+            });
+            continue; // Ab loop aage badhega, AI generate nahi karega
         }
 
         console.log(`   🤖 Generating AI Content...`);
