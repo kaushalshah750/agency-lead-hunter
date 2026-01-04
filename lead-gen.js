@@ -175,7 +175,7 @@ async function runScraper() {
 
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
-    const browser = await puppeteer.launch({ headless: false });
+    const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
 
     const allLeads = await getMapsLeads(page, searchQuery);
