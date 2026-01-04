@@ -175,7 +175,16 @@ async function runScraper() {
 
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
-    const browser = await puppeteer.launch({ headless: false });
+    const browser = await puppeteer.launch({
+        headless: true,
+        args: [
+            '--no-sandbox',                // <-- Ye line ROOT user ke liye compulsory hai
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+        ]
+    });
+
     const page = await browser.newPage();
 
     const allLeads = await getMapsLeads(page, searchQuery);
