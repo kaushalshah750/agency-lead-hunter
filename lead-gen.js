@@ -94,12 +94,13 @@ async function safeGoto(page, url) {
 }
 
 async function getMapsLeads(page, query) {
-    console.log(`\n🔍 Searching Google Maps for: ${query}`);
     let rawLeads = [];
 
     // 1. Standard Google Maps Search URL use karo (Zyada reliable hai)
-    const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}`;
+    console.log(`\n🔍 Searching Google Maps for: ${query}`);
     
+    // 🟢 2. STANDARD URL (Ye best hai desktop view ke liye)
+    const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=en`;    
     // Page load hone ka wait karo
     const isLoaded = await safeGoto(page, url);
 
@@ -260,7 +261,7 @@ async function runScraper() {
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
     const browser = await puppeteer.launch({
-        headless: true,
+        headless: "new",
         args: [
             '--no-sandbox',                // <-- Ye line ROOT user ke liye compulsory hai
             '--disable-setuid-sandbox',
@@ -269,9 +270,10 @@ async function runScraper() {
         ]
     });
 
-    const page = await browser.newPage(); // Ye line pehle se hogi
+    const page = await browser.newPage();
 
-    // --- 🟢 NEW CODE STARTS HERE ---
+    // 🟢 1. SCREEN SIZE BADA KARO (Desktop Mode Force Karo)
+    await page.setViewport({ width: 1920, height: 1080 });
     
     // 1. Fake User Agent (Server ko Windows Laptop banao)
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
