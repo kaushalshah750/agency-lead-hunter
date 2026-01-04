@@ -100,7 +100,7 @@ async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
     
     // 🟢 2. STANDARD URL (Ye best hai desktop view ke liye)
-    const url = `https://www.google.com/maps/search/${encodeURIComponent(query)}?hl=en`;    
+    const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}?hl=en`;
     // Page load hone ka wait karo
     const isLoaded = await safeGoto(page, url);
 
@@ -261,15 +261,15 @@ async function runScraper() {
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
     const browser = await puppeteer.launch({
-        headless: "new",
+        headless: "new", // ✅ Server ke liye 'true' ya 'new' compulsory hai
         args: [
-            '--no-sandbox',                // <-- Ye line ROOT user ke liye compulsory hai
+            '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu'
         ]
     });
-
+    
     const page = await browser.newPage();
 
     // 🟢 1. SCREEN SIZE BADA KARO (Desktop Mode Force Karo)
