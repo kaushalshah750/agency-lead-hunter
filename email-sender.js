@@ -63,8 +63,10 @@ async function processQueue() {
 
         if (sent) {
             row.set('Status', 'Sent'); // Memory update
-            await row.save();          // Sheet update
-            console.log(`   ✅ Marked as SENT.`);
+            await sheetManager.withRetry(async () => {
+                await row.save();
+                console.log(`✅ Marked as SENT.`);
+            }, 'Update Status to SENT');
             
             // Random Delay Logic
             const delay = Math.floor(Math.random() * (MAX_DELAY_MS - MIN_DELAY_MS + 1) + MIN_DELAY_MS);

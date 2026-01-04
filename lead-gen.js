@@ -35,7 +35,7 @@ const TARGET_NICHES = [
     'Social Media Marketing Agency'
 ];
 
-const RUNS_PER_DAY = 500; 
+const RUNS_PER_DAY = 50; 
 const LEADS_TO_FIND_PER_RUN = 500; 
 
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
@@ -45,43 +45,75 @@ function getRandomItem(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
+async function safeGoto(page, url, waitUntil) {
+    try {
+        // 60 second wait karega, agar nahi khula toh error nahi dega, bas false return karega
+        await page.goto(url, { waitUntil: waitUntil, timeout: 60000 });
+        return true;
+    } catch (error) {
+        console.log(`   ❌ Failed to load URL: ${url} (Error: ${error.message})`);
+        return false;
+    }
+}
+
 async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
+    let rawLeads = []; // ERROR 1 FIX: Changed 'const' to 'let'
+
+    // ERROR 2 FIX: Corrected URL and added '$' before {query}
+    const url = `https://www.google.com/maps/search/${query.split(' ').join('+')}`;
     
-    await page.goto(`https://www.google.com/maps/search/${query.split(' ').join('+')}`, { waitUntil: 'networkidle2' });
-    try { await page.waitForSelector('div[role="feed"]', { timeout: 15000 }); } catch (e) {}
+    // ERROR 3 FIX: Wait logic thoda loose rakha hai taaki crash na ho
+    const isLoaded = await safeGoto(page, url, 'domcontentloaded');
 
-    await page.evaluate(async () => {
-        const wrapper = document.querySelector('div[role="feed"]');
-        if(wrapper) {
-            for(let i=0; i<6; i++) { // Thoda zyada scroll (6 times)
-                wrapper.scrollTop = wrapper.scrollHeight;
-                await new Promise(r => setTimeout(r, 2000)); 
-            }
+    // ERROR 4 FIX: Removed '!' (Logic was inverted)
+    if (isLoaded) { 
+        try {
+            // Wait for feed to appear
+            await page.waitForSelector('div[role="feed"]', { timeout: 15000 });
+        } catch (e) {
+            console.log("   ⚠️ No results found or Feed selector changed.");
+            return []; // Return empty array instead of undefined
         }
-    });
 
-    const rawLeads = await page.evaluate(() => {
-        const items = document.querySelectorAll('div[role="article"]');
-        return Array.from(items).map(item => {
-            const link = Array.from(item.querySelectorAll('a')).find(l => l.href.includes('http') && !l.href.includes('google.com'));
-            return {
-                name: item.getAttribute('aria-label') || 'Unknown',
-                website: link ? link.href : null
-            };
+        await page.evaluate(async () => {
+            const wrapper = document.querySelector('div[role="feed"]');
+            if(wrapper) {
+                for(let i=0; i<6; i++) { 
+                    wrapper.scrollTop = wrapper.scrollHeight;
+                    await new Promise(r => setTimeout(r, 2000)); 
+                }
+            }
         });
-    });
+    
+        rawLeads = await page.evaluate(() => {
+            const items = document.querySelectorAll('div[role="article"]');
+            return Array.from(items).map(item => {
+                const link = Array.from(item.querySelectorAll('a')).find(l => l.href.includes('http') && !l.href.includes('google.com'));
+                return {
+                    name: item.getAttribute('aria-label') || 'Unknown',
+                    website: link ? link.href : null
+                };
+            });
+        });
+    } else {
+        console.log("   ❌ Page failed to load, returning empty list.");
+        return [];
+    }
+
     return rawLeads.filter(l => l.website);
 }
 
 async function findEmail(page, url) {
     try {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-        let email = await page.evaluate(() => {
-            const mailto = document.querySelector('a[href^="mailto:"]');
-            return mailto ? mailto.href.replace('mailto:', '').split('?')[0] : null;
-        });
-        return email;
+        const isLoaded = await safeGoto(page, url, 'domcontentloaded');
+        if (!isLoaded) {
+            let email = await page.evaluate(() => {
+                const mailto = document.querySelector('a[href^="mailto:"]');
+                return mailto ? mailto.href.replace('mailto:', '').split('?')[0] : null;
+            });
+            return email;
+        }    
     } catch (e) { return null; }
 }
 
@@ -143,7 +175,7 @@ async function runScraper() {
 
     console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
 
-    const browser = await puppeteer.launch({ headless: true });
+    const browser = await puppeteer.launch({ headless: false });
     const page = await browser.newPage();
 
     const allLeads = await getMapsLeads(page, searchQuery);
