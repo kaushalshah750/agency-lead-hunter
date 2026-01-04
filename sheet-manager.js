@@ -2,7 +2,7 @@ const { GoogleSpreadsheet } = require('google-spreadsheet');
 const { JWT } = require('google-auth-library');
 const creds = require('./secrets.json'); 
 
-const SHEET_ID = '1G1momh208WIeQrAbabsaOPn2w587gNSkZ3tWnsyTamk'; // Update if needed
+const SHEET_ID = '1G1momh208WIeQrAbabsaOPn2w587gNSkZ3tWnsyTamk'; 
 
 const serviceAccountAuth = new JWT({
   email: creds.client_email,
@@ -17,18 +17,17 @@ async function initSheet() {
     const sheet = doc.sheetsByIndex[0];
     await sheet.loadHeaderRow();
     
-    // Check if headers exist, if not create them
+    // UPDATE: Added Industry and Location
     if (sheet.headerValues.length === 0) {
-        await sheet.setHeaderRow(['Agency Name', 'Website', 'Email', 'AI Subject', 'AI Body', 'Status', 'Date Found']);
+        await sheet.setHeaderRow(['Agency Name', 'Website', 'Email', 'AI Subject', 'AI Body', 'Status', 'Date Found', 'Industry', 'Location']);
     }
     return sheet;
 }
 
-// Check Duplicate
 async function isDuplicate(websiteUrl) {
     if (!websiteUrl) return true;
     const sheet = doc.sheetsByIndex[0];
-    const rows = await sheet.getRows(); // Loads latest rows
+    const rows = await sheet.getRows();
     
     const cleanUrl = websiteUrl.replace(/(^\w+:|^)\/\//, '').toLowerCase();
     
@@ -38,7 +37,7 @@ async function isDuplicate(websiteUrl) {
     });
 }
 
-// Add New Lead (Status: Ready)
+// UPDATE: Accepting new fields
 async function addLead(data) {
     const sheet = doc.sheetsByIndex[0];
     await sheet.addRow({
@@ -47,12 +46,13 @@ async function addLead(data) {
         'Email': data.email,
         'AI Subject': data.subject,
         'AI Body': data.body,
-        'Status': 'Ready',  // <--- DEFAULT STATUS
-        'Date Found': new Date().toISOString().split('T')[0]
+        'Status': 'Ready',
+        'Date Found': new Date().toISOString().split('T')[0],
+        'Industry': data.industry,   // <--- NEW
+        'Location': data.location    // <--- NEW
     });
 }
 
-// Get Leads that are 'Ready'
 async function getPendingLeads() {
     const sheet = doc.sheetsByIndex[0];
     const rows = await sheet.getRows();

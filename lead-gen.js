@@ -1,3 +1,4 @@
+// lead-gen.js
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { OpenAI } = require('openai');
@@ -7,25 +8,53 @@ puppeteer.use(StealthPlugin());
 
 // --- CONFIGURATION ---
 const OPENAI_KEY = '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';
-const TARGET_NICHE = 'Digital Marketing Agency'; 
-const TARGET_LOCATION = 'Germany';
-const GOOGLE_MAPS_SEARCH_QUERY = `${TARGET_NICHE} in ${TARGET_LOCATION}`;
-const RUNS_PER_DAY = 50; 
-const LEADS_TO_FIND_PER_RUN = 50; 
+
+// 🔥 DYNAMIC SEARCH ARRAYS 🔥
+// Jitni zyada cities, utna kam duplication.
+const TARGET_LOCATIONS = [
+    'Berlin, Germany', 
+    'Pune, India', 
+    'Mumbai, India', 
+    'Surat, India', 
+    'Ahmedabad, India', 
+    'Vadodra, India', 
+    'Munich, Germany', 
+    'Hamburg, Germany', 
+    'Frankfurt, Germany', 
+    'Cologne, Germany', 
+    'Dubai, UAE',
+    'Abu Dhabi, UAE'
+];
+
+// Keywords change karte raho taaki alag results milein
+const TARGET_NICHES = [
+    'Digital Marketing Agency', 
+    'SEO Agency', 
+    'Web Design Agency', 
+    'Advertising Agency',
+    'Social Media Marketing Agency'
+];
+
+const RUNS_PER_DAY = 500; 
+const LEADS_TO_FIND_PER_RUN = 500; 
 
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
 
-// --- HELPER FUNCTIONS ---
+// --- HELPER: PICK RANDOM ITEM ---
+function getRandomItem(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
 
 async function getMapsLeads(page, query) {
     console.log(`\n🔍 Searching Google Maps for: ${query}`);
+    
     await page.goto(`https://www.google.com/maps/search/${query.split(' ').join('+')}`, { waitUntil: 'networkidle2' });
     try { await page.waitForSelector('div[role="feed"]', { timeout: 15000 }); } catch (e) {}
 
     await page.evaluate(async () => {
         const wrapper = document.querySelector('div[role="feed"]');
         if(wrapper) {
-            for(let i=0; i<5; i++) { 
+            for(let i=0; i<6; i++) { // Thoda zyada scroll (6 times)
                 wrapper.scrollTop = wrapper.scrollHeight;
                 await new Promise(r => setTimeout(r, 2000)); 
             }
@@ -56,22 +85,24 @@ async function findEmail(page, url) {
     } catch (e) { return null; }
 }
 
-async function generateAIContent(name, website, page) {
+async function generateAIContent(name, website, page, niche, location) {
     let context = "Business";
     try {
         context = await page.evaluate(() => document.body.innerText.substring(0, 800));
-    } catch (e) {}
+    } catch (e) {
+        console.log(`   ⚠️ Context Scrape Failed for ${name}`);
+    }
 
     const prompt = `
-    Context: You are writing a cold email to ${name}, which is a ${TARGET_NICHE} based in or targeting ${TARGET_LOCATION}.
-    Their Website Content Snippet: "${context.replace(/\n/g, ' ')}".
+    Context: Writing a cold email to ${name}, a ${niche} in ${location}.
+    Website Context: "${context.replace(/\n/g, ' ').substring(0, 500)}".
     
-    Your Identity: Kaushal Shah, Senior Full-Stack Developer & Founder of Sparqal.
-    Your Asset: A Live Portfolio (mrkaushalshah.com) and a proven Automation System.
+    My Identity: Kaushal Shah, Senior Full-Stack Developer (Sparqal).
+    My Offer: White-Label WhatsApp Automation Bot.
     
     EMAIL STRUCTURE (Strictly follow this order):
     1. Greeting: Hi ${name} Team,
-    2. The Hook: Direct statement about how an AI Receptionist/Automation can scale a ${TARGET_NICHE}.
+    2. The Hook: Direct statement about how an AI Receptionist/Automation can scale a ${niche}.
     3. The Pitch: Briefly mention you have a "Ready-to-deploy" white-label WhatsApp Bot.
     4. Your Credibility: Mention you are a Senior Developer.
     5. The Ask: Ask if they are available for a short 15-min call to see a live demo.
@@ -82,8 +113,9 @@ async function generateAIContent(name, website, page) {
     - Subject Line: Needs to be high-impact.
     - DO NOT include a signature.
     `;
-    
+
     try {
+        console.log(`   🤖 Asking AI to write for: ${name}...`);
         const res = await openai.chat.completions.create({
             messages: [{ role: "user", content: prompt }],
             model: "gpt-5.1",
@@ -91,7 +123,11 @@ async function generateAIContent(name, website, page) {
         });
         return JSON.parse(res.choices[0].message.content);
     } catch (e) { 
-        return { subject: "Partnership Opportunity", body: "Hi, check my portfolio mrkaushalshah.com" }; 
+        console.error(`   ❌ AI Error: ${e.message}`);
+        return { 
+            subject: `Partnership Opportunity: AI for ${name}`, 
+            body: `Hi ${name} Team,\n\nI noticed you are doing great work in ${location}. I have built a specialized WhatsApp Automation tool tailored for agencies like yours.\n\nCheck my portfolio: https://www.mrkaushalshah.com/\n\nAre you open for a quick chat?` 
+        }; 
     }
 }
 
@@ -100,10 +136,17 @@ async function runScraper() {
     console.log('🔄 Starting Lead Gen Batch...');
     await sheetManager.initSheet(); 
 
-    const browser = await puppeteer.launch({ headless: true }); // Headless False for Maps
+    // 🔥 RANDOMIZE SELECTION 🔥
+    const currentNiche = getRandomItem(TARGET_NICHES);
+    const currentLocation = getRandomItem(TARGET_LOCATIONS);
+    const searchQuery = `${currentNiche} in ${currentLocation}`;
+
+    console.log(`🎲 Strategy: Hunting for '${currentNiche}' in '${currentLocation}'`);
+
+    const browser = await puppeteer.launch({ headless: true });
     const page = await browser.newPage();
 
-    const allLeads = await getMapsLeads(page, GOOGLE_MAPS_SEARCH_QUERY);
+    const allLeads = await getMapsLeads(page, searchQuery);
     console.log(`   📍 Found ${allLeads.length} leads.`);
 
     let processedCount = 0;
@@ -126,14 +169,17 @@ async function runScraper() {
         }
 
         console.log(`   🤖 Generating AI Content...`);
-        const aiContent = await generateAIContent(lead.name, lead.website, page);
+        // Pass Niche and Location to AI for better context
+        const aiContent = await generateAIContent(lead.name, lead.website, page, currentNiche, currentLocation);
         
         await sheetManager.addLead({
             name: lead.name,
             website: lead.website,
             email: email,
             subject: aiContent.subject,
-            body: aiContent.body
+            body: aiContent.body,
+            industry: currentNiche,     // Saving Niche
+            location: currentLocation   // Saving Location
         });
 
         console.log(`   💾 Saved to Sheet (Status: Ready)`);
@@ -144,7 +190,6 @@ async function runScraper() {
     console.log('💤 Scraper Batch Complete.');
 }
 
-// Schedule
 const intervalMs = (24 * 60 * 60 * 1000) / RUNS_PER_DAY;
 runScraper();
 setInterval(runScraper, intervalMs);
